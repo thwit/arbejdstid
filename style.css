@@ -1,39 +1,228 @@
 body {
-  background: #0a0a0f;
-  color: #e5e5e5;
+  background: #f7f7f8;
+  color: #1c1c1f;
   font-family: system-ui, sans-serif;
   margin: 0;
 }
 
 main {
-  max-width: 32rem;
+  max-width: 40rem;
   margin: 0 auto;
-  padding: 2rem 1rem;
+  padding: 2rem 1rem 4rem;
 }
 
 h1 {
-  color: #fb923c;
+  color: #ea580c;
+  margin: 0;
 }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
 }
 
-th, td {
-  text-align: left;
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid #27272a;
+.toggle {
+  font-family: inherit;
+  font-size: 0.85rem;
+  color: #3f3f46;
+  background: #ffffff;
+  border: 1px solid #d4d4d8;
+  border-radius: 999px;
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-th {
-  color: #a1a1aa;
-  font-size: 0.8rem;
+.toggle:hover {
+  border-color: #a1a1aa;
+}
+
+.toggle.on {
+  background: #fff7ed;
+  border-color: #fb923c;
+  color: #c2410c;
+}
+
+.empty-msg {
+  color: #71717a;
+}
+
+.period-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.period-badge {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  background: #ffffff;
+  border: 1px solid #e4e4e7;
+  border-radius: 0.5rem;
+  padding: 0.4rem 0.7rem;
+}
+
+.period-label {
+  font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  color: #71717a;
 }
 
-td:last-child, th:last-child {
-  text-align: right;
+.period-diff {
+  font-size: 0.85rem;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+.period-diff.positive { color: #16a34a; }
+.period-diff.negative { color: #dc2626; }
+
+#weeks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.week-card {
+  background: #ffffff;
+  border: 1px solid #e4e4e7;
+  border-radius: 0.75rem;
+  padding: 1rem 1.25rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.week-card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.75rem;
+}
+
+.week-range {
+  font-size: 0.85rem;
+  color: #71717a;
+}
+
+.week-total {
+  font-size: 1.1rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #52525b;
+}
+
+.week-diff {
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-left: 0.35rem;
+}
+
+.week-diff.positive { color: #16a34a; }
+.week-diff.negative { color: #dc2626; }
+
+.days {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.5rem;
+}
+
+.day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.day-bar-track {
+  position: relative;
+  width: 100%;
+  height: 4rem;
+  margin-top: 0.85em;
+  margin-bottom: 0.85em;
+  background-color: #f1f1f3;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    #e4e4e7 0,
+    #e4e4e7 1px,
+    transparent 1px,
+    transparent 33.333%
+  );
+  border-radius: 0.25rem;
+  overflow: visible;
+}
+
+.day-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-radius: 0.15rem;
+  transition: bottom 0.2s ease, height 0.2s ease;
+}
+
+.bar-time {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.55rem;
+  line-height: 1;
+  color: #52525b;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar-time-top {
+  bottom: 100%;
+  margin-bottom: 0.2em;
+}
+
+.bar-time-bottom {
+  top: 100%;
+  margin-top: 0.2em;
+}
+
+.day.commuted .day-bar { background: #52525b; }
+.day.assumed .day-bar {
+  background: repeating-linear-gradient(
+    45deg,
+    #d4d4d8,
+    #d4d4d8 4px,
+    #e4e4e7 4px,
+    #e4e4e7 8px
+  );
+}
+
+.bar-diff {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 0.65rem;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar-diff.positive { color: #4ade80; }
+.bar-diff.negative { color: #f87171; }
+
+.day-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #71717a;
+}
+
+.day-hours {
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.bike {
+  font-size: 0.75rem;
 }

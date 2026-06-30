@@ -38,6 +38,16 @@ function mondayOf(dateString) {
   return dateStr(d);
 }
 
+// start_date_local strings encode wall-clock local time in UTC-format,
+// so getUTCHours()/getUTCMinutes() on a ms timestamp derived from them
+// gives the correct local time-of-day.
+function fmtTimeOfDay(ms) {
+  const d = new Date(ms);
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const mm = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
 function enumerateDates(fromDateString, toDateString) {
   const dates = [];
   const cur = new Date(`${fromDateString}T00:00:00Z`);
@@ -86,27 +96,49 @@ async function main() {
 
     const acts = byDate.get(date) ?? [];
     let hours;
-    if (acts.length >= 2) {
+    let arrival = null;
+    let departure = null;
+    let amDistance = null;
+    let pmDistance = null;
+    const commuted = acts.length >= 2;
+    if (commuted) {
       const first = acts[0];
       const last = acts[acts.length - 1];
       const firstEnd = new Date(first.start_date_local).getTime() + first.elapsed_time * 1000;
       const lastStart = new Date(last.start_date_local).getTime();
       hours = (lastStart - firstEnd) / 3600000;
+      arrival = fmtTimeOfDay(firstEnd);
+      departure = fmtTimeOfDay(lastStart);
+      amDistance = first.distance;
+      pmDistance = last.distance;
     } else {
       hours = TARGET_SECONDS_PER_DAY / 3600;
     }
-    dayHours.push({ date, hours });
+    dayHours.push({ date, hours, commuted, arrival, departure, amDistance, pmDistance });
   }
 
   const byWeek = new Map();
-  for (const { date, hours } of dayHours) {
+  for (const { date, hours, commuted, arrival, departure, amDistance, pmDistance } of dayHours) {
     const weekStart = mondayOf(date);
-    byWeek.set(weekStart, (byWeek.get(weekStart) ?? 0) + hours);
+    if (!byWeek.has(weekStart)) byWeek.set(weekStart, []);
+    byWeek.get(weekStart).push({
+      date,
+      hours: Math.round(hours * 100) / 100,
+      commuted,
+      arrival,
+      departure,
+      amDistance,
+      pmDistance,
+    });
   }
 
   const weeklyHours = [...byWeek.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([weekStart, hours]) => ({ weekStart, hours: Math.round(hours * 100) / 100 }));
+    .map(([weekStart, days]) => ({
+      weekStart,
+      hours: Math.round(days.reduce((s, d) => s + d.hours, 0) * 100) / 100,
+      days,
+    }));
 
   await mkdir(new URL('../data/', import.meta.url), { recursive: true });
   await writeFile(

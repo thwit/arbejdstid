@@ -8,4 +8,4 @@ export const COMMUTE_TYPES = ['Ride', 'VirtualRide'];
 export const TARGET_SECONDS_PER_DAY = 8 * 3600;
 
 // Only fetch activities from this point on (epoch seconds).
-export const FETCH_AFTER_EPOCH = 1746057600; // May 1 2026 00:00:00 UTC
+export const FETCH_AFTER_EPOCH = 1777852800; // May 4 2026 00:00:00 UTC

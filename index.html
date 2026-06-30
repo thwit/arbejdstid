@@ -8,18 +8,14 @@
 </head>
 <body>
   <main>
-    <h1>Arbejdstid</h1>
-    <table id="weeks">
-      <thead>
-        <tr>
-          <th>Week of</th>
-          <th>Hours worked</th>
-        </tr>
-      </thead>
-      <tbody id="weeks-body">
-        <tr><td colspan="2">Loading…</td></tr>
-      </tbody>
-    </table>
+    <div class="top-bar">
+      <h1>Arbejdstid</h1>
+      <button id="overhead-toggle" class="toggle" aria-pressed="false">
+        Overhead time: <strong>Off</strong>
+      </button>
+    </div>
+    <div id="period-summary" class="period-summary"></div>
+    <div id="weeks">Loading…</div>
   </main>
   <script src="app.js"></script>
 </body>
