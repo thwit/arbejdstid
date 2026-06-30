@@ -1,0 +1,10 @@
+{
+  "name": "arbejdstid",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "auth": "node scripts/get-refresh-token.mjs",
+    "build-data": "node scripts/build-data.mjs"
+  }
+}
