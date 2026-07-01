@@ -409,7 +409,7 @@
   },
   {
     "weekStart": "2026-06-29",
-    "hours": 16.44,
+    "hours": 24.44,
     "days": [
       {
         "date": "2026-06-29",
@@ -428,6 +428,15 @@
         "departure": "15:15",
         "amDistance": 6683.8,
         "pmDistance": 6738.3
+      },
+      {
+        "date": "2026-07-01",
+        "hours": 8,
+        "commuted": false,
+        "arrival": null,
+        "departure": null,
+        "amDistance": null,
+        "pmDistance": null
       }
     ]
   }
