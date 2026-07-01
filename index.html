@@ -7,32 +7,38 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <main>
-    <div id="lock-screen" class="lock-screen">
-      <h1>Arbejdstid</h1>
-      <form id="lock-form">
-        <input
-          type="password"
-          id="lock-password"
-          placeholder="Password"
-          autocomplete="current-password"
-          autofocus
-        />
-        <button type="submit">Unlock</button>
-      </form>
-      <p id="lock-error" class="lock-error" hidden>Wrong password.</p>
-    </div>
-    <div id="app-content" hidden>
-      <div class="top-bar">
+  <div class="layout">
+    <main>
+      <div id="lock-screen" class="lock-screen">
         <h1>Arbejdstid</h1>
-        <button id="overhead-toggle" class="toggle" aria-pressed="false">
-          Overhead time: <strong>Off</strong>
-        </button>
+        <form id="lock-form">
+          <input
+            type="password"
+            id="lock-password"
+            placeholder="Password"
+            autocomplete="current-password"
+            autofocus
+          />
+          <button type="submit">Unlock</button>
+        </form>
+        <p id="lock-error" class="lock-error" hidden>Wrong password.</p>
       </div>
-      <div id="period-summary" class="period-summary"></div>
-      <div id="weeks">Loading…</div>
-    </div>
-  </main>
+      <div id="app-content" hidden>
+        <div class="top-bar">
+          <h1>Arbejdstid</h1>
+          <button id="overhead-toggle" class="toggle" aria-pressed="false">
+            Overhead time: <strong>Off</strong>
+          </button>
+        </div>
+        <div id="period-summary" class="period-summary"></div>
+        <div id="weeks">Loading…</div>
+      </div>
+    </main>
+    <aside id="heatmap-panel" class="heatmap-panel" hidden>
+      <h2>Start / End Times</h2>
+      <div id="heatmap"></div>
+    </aside>
+  </div>
   <script src="app.js"></script>
 </body>
 </html>

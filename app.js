@@ -16,6 +16,9 @@ const SUMMARY_PERIODS = [
   { label: '12 Months', days: 365 },
 ];
 
+const HEATMAP_BIN_MINUTES = 30;
+const HEATMAP_BIN_COUNT = ((AXIS_END_HOUR - AXIS_START_HOUR) * 60) / HEATMAP_BIN_MINUTES;
+
 // Keep in sync with PBKDF2_ITERATIONS in scripts/encrypt.mjs.
 const PBKDF2_ITERATIONS = 250000;
 const SESSION_STORAGE_KEY = 'arbejdstidPassword';
@@ -220,6 +223,74 @@ function renderSummary() {
   }).join('');
 }
 
+// Maps "HH:mm" to a bin index within the 06:00..18:00 axis, clamped.
+function timeToBinIndex(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  const minutesFromStart = h * 60 + m - AXIS_START_HOUR * 60;
+  const idx = Math.floor(minutesFromStart / HEATMAP_BIN_MINUTES);
+  return Math.min(HEATMAP_BIN_COUNT - 1, Math.max(0, idx));
+}
+
+// day-of-week index 0..4 for Mon..Fri, or -1 for weekends.
+function weekdayIndex(dateString) {
+  const day = new Date(`${dateString}T00:00:00Z`).getUTCDay(); // 0=Sun..6=Sat
+  return day >= 1 && day <= 5 ? day - 1 : -1;
+}
+
+// Counts, per (hour bin, weekday), how often an arrival or departure fell
+// in that bin across all recorded commute days.
+function computeHeatmapGrid() {
+  const grid = Array.from({ length: HEATMAP_BIN_COUNT }, () => new Array(5).fill(0));
+  if (!weeksData) return grid;
+
+  for (const week of weeksData) {
+    for (const day of week.days) {
+      const entry = applyOverhead(day);
+      if (!entry.commuted) continue;
+      const dayIdx = weekdayIndex(entry.date);
+      if (dayIdx === -1) continue;
+      grid[timeToBinIndex(entry.arrival)][dayIdx] += 1;
+      grid[timeToBinIndex(entry.departure)][dayIdx] += 1;
+    }
+  }
+  return grid;
+}
+
+function heatmapCellColor(count, maxCount) {
+  if (count === 0) return '#f1f1f3';
+  const alpha = 0.25 + 0.75 * (count / maxCount);
+  return `rgba(234, 88, 12, ${alpha.toFixed(2)})`;
+}
+
+function renderHeatmap() {
+  const panel = document.getElementById('heatmap-panel');
+  const container = document.getElementById('heatmap');
+  if (!weeksData || weeksData.length === 0) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+
+  const grid = computeHeatmapGrid();
+  const maxCount = Math.max(1, ...grid.flat());
+
+  let html = '<div class="heatmap-grid">';
+  html += '<div></div>' + DAY_LABELS.map((d) => `<div class="heatmap-day-label">${d}</div>`).join('');
+
+  for (let bin = 0; bin < HEATMAP_BIN_COUNT; bin++) {
+    const minutes = AXIS_START_HOUR * 60 + bin * HEATMAP_BIN_MINUTES;
+    const label =
+      minutes % 60 === 0 ? `${String(Math.floor(minutes / 60)).padStart(2, '0')}:00` : '';
+    html += `<div class="heatmap-hour-label">${label}</div>`;
+    for (let d = 0; d < 5; d++) {
+      const count = grid[bin][d];
+      html += `<div class="heatmap-cell" style="background:${heatmapCellColor(count, maxCount)}" title="${DAY_LABELS[d]} ${label || ''} — ${count} time(s)"></div>`;
+    }
+  }
+  html += '</div>';
+  container.innerHTML = html;
+}
+
 function updateToggleButton() {
   const btn = document.getElementById('overhead-toggle');
   btn.setAttribute('aria-pressed', String(overheadEnabled));
@@ -234,6 +305,7 @@ function initToggle() {
     localStorage.setItem('overheadEnabled', String(overheadEnabled));
     updateToggleButton();
     renderWeeks();
+    renderHeatmap();
   });
 }
 
@@ -243,6 +315,7 @@ async function unlock(payload, password) {
   document.getElementById('app-content').hidden = false;
   initToggle();
   renderWeeks();
+  renderHeatmap();
 }
 
 async function render() {
