@@ -25,6 +25,10 @@ h1 {
   text-align: center;
 }
 
+.lock-screen[hidden] {
+  display: none;
+}
+
 #lock-form {
   display: flex;
   gap: 0.5rem;
