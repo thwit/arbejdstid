@@ -277,7 +277,7 @@ function renderHeatmap() {
   let html = '<div class="heatmap-grid">';
   html += '<div></div>' + DAY_LABELS.map((d) => `<div class="heatmap-day-label">${d}</div>`).join('');
 
-  for (let bin = 0; bin < HEATMAP_BIN_COUNT; bin++) {
+  for (let bin = HEATMAP_BIN_COUNT - 1; bin >= 0; bin--) {
     const minutes = AXIS_START_HOUR * 60 + bin * HEATMAP_BIN_MINUTES;
     const label =
       minutes % 60 === 0 ? `${String(Math.floor(minutes / 60)).padStart(2, '0')}:00` : '';
