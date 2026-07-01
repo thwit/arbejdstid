@@ -8,14 +8,30 @@
 </head>
 <body>
   <main>
-    <div class="top-bar">
+    <div id="lock-screen" class="lock-screen">
       <h1>Arbejdstid</h1>
-      <button id="overhead-toggle" class="toggle" aria-pressed="false">
-        Overhead time: <strong>Off</strong>
-      </button>
+      <form id="lock-form">
+        <input
+          type="password"
+          id="lock-password"
+          placeholder="Password"
+          autocomplete="current-password"
+          autofocus
+        />
+        <button type="submit">Unlock</button>
+      </form>
+      <p id="lock-error" class="lock-error" hidden>Wrong password.</p>
     </div>
-    <div id="period-summary" class="period-summary"></div>
-    <div id="weeks">Loading…</div>
+    <div id="app-content" hidden>
+      <div class="top-bar">
+        <h1>Arbejdstid</h1>
+        <button id="overhead-toggle" class="toggle" aria-pressed="false">
+          Overhead time: <strong>Off</strong>
+        </button>
+      </div>
+      <div id="period-summary" class="period-summary"></div>
+      <div id="weeks">Loading…</div>
+    </div>
   </main>
   <script src="app.js"></script>
 </body>

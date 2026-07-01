@@ -16,8 +16,41 @@ const SUMMARY_PERIODS = [
   { label: '12 Months', days: 365 },
 ];
 
+// Keep in sync with PBKDF2_ITERATIONS in scripts/encrypt.mjs.
+const PBKDF2_ITERATIONS = 250000;
+const SESSION_STORAGE_KEY = 'arbejdstidPassword';
+
 let weeksData = null;
 let overheadEnabled = localStorage.getItem('overheadEnabled') === 'true';
+
+function base64ToBytes(base64) {
+  return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+}
+
+async function decryptPayload(payload, password) {
+  const passwordBytes = new TextEncoder().encode(password);
+  const baseKey = await crypto.subtle.importKey('raw', passwordBytes, 'PBKDF2', false, [
+    'deriveKey',
+  ]);
+  const key = await crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: base64ToBytes(payload.salt),
+      iterations: PBKDF2_ITERATIONS,
+      hash: 'SHA-256',
+    },
+    baseKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['decrypt']
+  );
+  const plaintextBuffer = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: base64ToBytes(payload.iv) },
+    key,
+    base64ToBytes(payload.data)
+  );
+  return JSON.parse(new TextDecoder().decode(plaintextBuffer));
+}
 
 function addDays(dateString, n) {
   const d = new Date(`${dateString}T00:00:00Z`);
@@ -204,17 +237,50 @@ function initToggle() {
   });
 }
 
-async function render() {
-  const container = document.getElementById('weeks');
+async function unlock(payload, password) {
+  weeksData = await decryptPayload(payload, password);
+  document.getElementById('lock-screen').hidden = true;
+  document.getElementById('app-content').hidden = false;
   initToggle();
+  renderWeeks();
+}
+
+async function render() {
+  const lockScreen = document.getElementById('lock-screen');
+  const lockForm = document.getElementById('lock-form');
+  const lockError = document.getElementById('lock-error');
+
+  let payload;
   try {
     const res = await fetch('data/weekly-hours.json');
     if (!res.ok) throw new Error(`Failed to load data (${res.status})`);
-    weeksData = await res.json();
-    renderWeeks();
+    payload = await res.json();
   } catch (err) {
-    container.innerHTML = `<p class="empty-msg">Error: ${err.message}</p>`;
+    lockScreen.innerHTML = `<p class="empty-msg">Error: ${err.message}</p>`;
+    return;
   }
+
+  const cachedPassword = sessionStorage.getItem(SESSION_STORAGE_KEY);
+  if (cachedPassword) {
+    try {
+      await unlock(payload, cachedPassword);
+      return;
+    } catch {
+      sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    }
+  }
+
+  lockForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const password = document.getElementById('lock-password').value;
+    lockError.hidden = true;
+    try {
+      await unlock(payload, password);
+      sessionStorage.setItem(SESSION_STORAGE_KEY, password);
+    } catch {
+      lockError.hidden = false;
+    }
+  });
 }
 
 render();

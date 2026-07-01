@@ -2,6 +2,7 @@ import { writeFile, mkdir } from 'node:fs/promises';
 import { refreshAccessToken, fetchActivitiesAfter } from './strava.mjs';
 import { isWithinRadius } from './geo.mjs';
 import { loadEnvLocal } from './load-env.mjs';
+import { encryptWithPassword } from './encrypt.mjs';
 import {
   WORK_LAT,
   WORK_LNG,
@@ -65,11 +66,15 @@ async function main() {
   const clientId = process.env.STRAVA_CLIENT_ID;
   const clientSecret = process.env.STRAVA_CLIENT_SECRET;
   const refreshToken = process.env.STRAVA_REFRESH_TOKEN;
+  const pagePassword = process.env.PAGE_PASSWORD;
 
   if (!clientId || !clientSecret || !refreshToken) {
     throw new Error(
       'Missing STRAVA_CLIENT_ID / STRAVA_CLIENT_SECRET / STRAVA_REFRESH_TOKEN env vars'
     );
+  }
+  if (!pagePassword) {
+    throw new Error('Missing PAGE_PASSWORD env var');
   }
 
   const refreshed = await refreshAccessToken(clientId, clientSecret, refreshToken);
@@ -140,10 +145,12 @@ async function main() {
       days,
     }));
 
+  const encrypted = encryptWithPassword(JSON.stringify(weeklyHours), pagePassword);
+
   await mkdir(new URL('../data/', import.meta.url), { recursive: true });
   await writeFile(
     new URL('../data/weekly-hours.json', import.meta.url),
-    JSON.stringify(weeklyHours, null, 2) + '\n'
+    JSON.stringify(encrypted, null, 2) + '\n'
   );
 
   console.log(`Wrote ${weeklyHours.length} weeks (${qualifying.length} qualifying rides of ${activities.length} fetched).`);
