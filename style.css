@@ -305,11 +305,17 @@ h1 {
   font-size: 0.75rem;
 }
 
+.heatmap-header {
+  display: grid;
+  grid-template-columns: 2rem repeat(5, 1fr);
+  margin-bottom: 0.3rem;
+}
+
 .heatmap-grid {
   display: grid;
   grid-template-columns: 2rem repeat(5, 1fr);
-  gap: 2px;
-  align-items: center;
+  grid-auto-rows: 3px;
+  gap: 1px;
 }
 
 .heatmap-day-label {
@@ -318,18 +324,20 @@ h1 {
   letter-spacing: 0.03em;
   color: #71717a;
   text-align: center;
-  padding-bottom: 0.3rem;
 }
 
 .heatmap-hour-label {
+  position: relative;
   font-size: 0.6rem;
+  line-height: 1;
   color: #a1a1aa;
   text-align: right;
   padding-right: 0.3rem;
   font-variant-numeric: tabular-nums;
+  top: -0.35em;
 }
 
 .heatmap-cell {
-  height: 11px;
+  height: 3px;
   border-radius: 1px;
 }

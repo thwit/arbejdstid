@@ -16,7 +16,7 @@ const SUMMARY_PERIODS = [
   { label: '12 Months', days: 365 },
 ];
 
-const HEATMAP_BIN_MINUTES = 30;
+const HEATMAP_BIN_MINUTES = 5;
 const HEATMAP_BIN_COUNT = ((AXIS_END_HOUR - AXIS_START_HOUR) * 60) / HEATMAP_BIN_MINUTES;
 
 // Keep in sync with PBKDF2_ITERATIONS in scripts/encrypt.mjs.
@@ -274,21 +274,25 @@ function renderHeatmap() {
   const grid = computeHeatmapGrid();
   const maxCount = Math.max(1, ...grid.flat());
 
-  let html = '<div class="heatmap-grid">';
-  html += '<div></div>' + DAY_LABELS.map((d) => `<div class="heatmap-day-label">${d}</div>`).join('');
+  const headerHtml =
+    '<div class="heatmap-header"><div></div>' +
+    DAY_LABELS.map((d) => `<div class="heatmap-day-label">${d}</div>`).join('') +
+    '</div>';
 
+  let bodyHtml = '<div class="heatmap-grid">';
   for (let bin = HEATMAP_BIN_COUNT - 1; bin >= 0; bin--) {
     const minutes = AXIS_START_HOUR * 60 + bin * HEATMAP_BIN_MINUTES;
     const label =
       minutes % 60 === 0 ? `${String(Math.floor(minutes / 60)).padStart(2, '0')}:00` : '';
-    html += `<div class="heatmap-hour-label">${label}</div>`;
+    bodyHtml += `<div class="heatmap-hour-label">${label}</div>`;
     for (let d = 0; d < 5; d++) {
       const count = grid[bin][d];
-      html += `<div class="heatmap-cell" style="background:${heatmapCellColor(count, maxCount)}" title="${DAY_LABELS[d]} ${label || ''} — ${count} time(s)"></div>`;
+      bodyHtml += `<div class="heatmap-cell" style="background:${heatmapCellColor(count, maxCount)}" title="${DAY_LABELS[d]} ${label || ''} — ${count} time(s)"></div>`;
     }
   }
-  html += '</div>';
-  container.innerHTML = html;
+  bodyHtml += '</div>';
+
+  container.innerHTML = headerHtml + bodyHtml;
 }
 
 function updateToggleButton() {
