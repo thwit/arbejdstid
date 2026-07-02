@@ -163,7 +163,7 @@ function dayCell(weekStart, offset, daysByDate) {
       <div class="day-bar-track">
         ${arrival && departure ? `<div class="day-bar" style="${barStyle}">${timeLabels}${diffLabel}</div>` : ''}
       </div>
-      <div class="day-label">${DAY_LABELS[offset]} ${entry?.commuted ? '<span class="bike" title="Commuted by bike">🚲</span>' : ''}</div>
+      <div class="day-label">${DAY_LABELS[offset]} ${entry?.bikedAm || entry?.bikedPm ? '<span class="bike" title="Commuted by bike">🚲</span>' : ''}</div>
       <div class="day-hours">${entry ? fmtHours(entry.hours) : '—'}</div>
     </div>
   `;

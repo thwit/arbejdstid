@@ -1,8 +1,8 @@
-import { writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { refreshAccessToken, fetchActivitiesAfter } from './strava.mjs';
 import { isWithinRadius } from './geo.mjs';
 import { loadEnvLocal } from './load-env.mjs';
-import { encryptWithPassword } from './encrypt.mjs';
+import { encryptWithPassword, decryptWithPassword } from './encrypt.mjs';
 import {
   WORK_LAT,
   WORK_LNG,
@@ -49,6 +49,28 @@ function fmtTimeOfDay(ms) {
   return `${hh}:${mm}`;
 }
 
+// Manual check-ins recorded by the iOS Shortcut (geofence arrive/leave
+// automations), for days that aren't fully covered by qualifying Strava
+// rides. Keyed by date -> { arrival, departure } (either may be absent).
+async function loadManualCheckins(pagePassword) {
+  let raw;
+  try {
+    raw = await readFile(new URL('../data/manual-checkins.json', import.meta.url), 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return new Map();
+    throw err;
+  }
+  const payload = JSON.parse(raw);
+  const checkins = JSON.parse(decryptWithPassword(payload, pagePassword));
+
+  const byDate = new Map();
+  for (const { date, type, time } of checkins) {
+    if (!byDate.has(date)) byDate.set(date, {});
+    byDate.get(date)[type] = time;
+  }
+  return byDate;
+}
+
 function enumerateDates(fromDateString, toDateString) {
   const dates = [];
   const cur = new Date(`${fromDateString}T00:00:00Z`);
@@ -81,6 +103,7 @@ async function main() {
   const activities = await fetchActivitiesAfter(refreshed.access_token, FETCH_AFTER_EPOCH);
 
   const qualifying = activities.filter(isQualifyingActivity);
+  const manualByDate = await loadManualCheckins(pagePassword);
 
   const byDate = new Map();
   for (const a of qualifying) {
@@ -100,30 +123,79 @@ async function main() {
     if (!isWeekday(date)) continue;
 
     const acts = byDate.get(date) ?? [];
-    let hours;
-    let arrival = null;
-    let departure = null;
+
+    // Strava-derived legs. Two or more qualifying rides: first ride's end is
+    // the arrival, last ride's start is the departure (existing behaviour).
+    // Exactly one qualifying ride: use it for whichever leg it represents,
+    // based on whether it started before or after midday.
+    let stravaArrival = null;
+    let stravaDeparture = null;
     let amDistance = null;
     let pmDistance = null;
-    const commuted = acts.length >= 2;
-    if (commuted) {
+    if (acts.length >= 2) {
       const first = acts[0];
       const last = acts[acts.length - 1];
       const firstEnd = new Date(first.start_date_local).getTime() + first.elapsed_time * 1000;
       const lastStart = new Date(last.start_date_local).getTime();
-      hours = (lastStart - firstEnd) / 3600000;
-      arrival = fmtTimeOfDay(firstEnd);
-      departure = fmtTimeOfDay(lastStart);
+      stravaArrival = fmtTimeOfDay(firstEnd);
+      stravaDeparture = fmtTimeOfDay(lastStart);
       amDistance = first.distance;
       pmDistance = last.distance;
+    } else if (acts.length === 1) {
+      const act = acts[0];
+      const start = new Date(act.start_date_local).getTime();
+      const end = start + act.elapsed_time * 1000;
+      if (new Date(start).getUTCHours() < 12) {
+        stravaArrival = fmtTimeOfDay(end);
+        amDistance = act.distance;
+      } else {
+        stravaDeparture = fmtTimeOfDay(start);
+        pmDistance = act.distance;
+      }
+    }
+
+    // Manual check-ins (from the iOS Shortcut geofence automation) fill in
+    // whichever leg Strava didn't cover for the day; Strava always wins.
+    const manual = manualByDate.get(date) ?? {};
+    const arrival = stravaArrival ?? manual.arrival ?? null;
+    const departure = stravaDeparture ?? manual.departure ?? null;
+    const bikedAm = stravaArrival != null;
+    const bikedPm = stravaDeparture != null;
+
+    let hours;
+    const commuted = arrival != null && departure != null;
+    if (commuted) {
+      const arrivalMs = new Date(`${date}T${arrival}:00Z`).getTime();
+      const departureMs = new Date(`${date}T${departure}:00Z`).getTime();
+      hours = (departureMs - arrivalMs) / 3600000;
     } else {
       hours = TARGET_SECONDS_PER_DAY / 3600;
     }
-    dayHours.push({ date, hours, commuted, arrival, departure, amDistance, pmDistance });
+    dayHours.push({
+      date,
+      hours,
+      commuted,
+      arrival,
+      departure,
+      amDistance,
+      pmDistance,
+      bikedAm,
+      bikedPm,
+    });
   }
 
   const byWeek = new Map();
-  for (const { date, hours, commuted, arrival, departure, amDistance, pmDistance } of dayHours) {
+  for (const {
+    date,
+    hours,
+    commuted,
+    arrival,
+    departure,
+    amDistance,
+    pmDistance,
+    bikedAm,
+    bikedPm,
+  } of dayHours) {
     const weekStart = mondayOf(date);
     if (!byWeek.has(weekStart)) byWeek.set(weekStart, []);
     byWeek.get(weekStart).push({
@@ -134,6 +206,8 @@ async function main() {
       departure,
       amDistance,
       pmDistance,
+      bikedAm,
+      bikedPm,
     });
   }
 

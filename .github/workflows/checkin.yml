@@ -1,0 +1,42 @@
+name: Record manual commute check-in
+
+on:
+  repository_dispatch:
+    types: [commute-checkin]
+
+permissions:
+  contents: write
+
+jobs:
+  checkin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Record check-in
+        env:
+          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+          CHECKIN_DATE: ${{ github.event.client_payload.date }}
+          CHECKIN_TYPE: ${{ github.event.client_payload.type }}
+          CHECKIN_TIME: ${{ github.event.client_payload.time }}
+        run: node scripts/record-checkin.mjs
+
+      - name: Rebuild weekly hours data
+        env:
+          STRAVA_CLIENT_ID: ${{ secrets.STRAVA_CLIENT_ID }}
+          STRAVA_CLIENT_SECRET: ${{ secrets.STRAVA_CLIENT_SECRET }}
+          STRAVA_REFRESH_TOKEN: ${{ secrets.STRAVA_REFRESH_TOKEN }}
+          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+        run: node scripts/build-data.mjs
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/manual-checkins.json data/weekly-hours.json
+          git diff --cached --quiet || git commit -m "Record manual check-in (${{ github.event.client_payload.type }} ${{ github.event.client_payload.date }})"
+          git push
