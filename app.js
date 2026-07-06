@@ -8,6 +8,8 @@ const OVERHEAD_DISTANCE_THRESHOLD_METERS = 15000;
 const OVERHEAD_SHORT_SECONDS = 3 * 60;
 const OVERHEAD_LONG_SECONDS = 10 * 60;
 
+const LONG_RIDE_DISTANCE_THRESHOLD_METERS = 10000;
+
 const SUMMARY_PERIODS = [
   { label: '2 Weeks', days: 14 },
   { label: '1 Month', days: 30 },
@@ -183,10 +185,22 @@ function diffClass(diff) {
   return diff < 0 ? 'negative' : 'positive';
 }
 
-function bikeLink(activityId) {
-  return activityId
-    ? `<a class="bike" href="https://www.strava.com/activities/${activityId}" target="_blank" rel="noopener noreferrer" title="View on Strava">🚲</a>`
-    : '';
+// Returns the icon for one leg (arrival/departure) of a day: a linked bike
+// emoji for Strava-tracked rides (plus a wind emoji for rides over 10km),
+// a train emoji for times logged via the iPhone Shortcut, or nothing for
+// assumed/inferred times.
+function legIcon(entry, { biked, manual, distance, activityId }) {
+  if (biked) {
+    const fast =
+      distance != null && distance > LONG_RIDE_DISTANCE_THRESHOLD_METERS
+        ? '<span class="fast" title="Long ride (>10km)">💨</span>'
+        : '';
+    return `<a class="bike" href="https://www.strava.com/activities/${activityId}" target="_blank" rel="noopener noreferrer" title="View on Strava">🚲</a>${fast}`;
+  }
+  if (manual) {
+    return '<span class="bike" title="Logged via iPhone Shortcut">🚆</span>';
+  }
+  return '';
 }
 
 function dayCell(weekStart, offset, daysByDate, today) {
@@ -206,11 +220,25 @@ function dayCell(weekStart, offset, daysByDate, today) {
   const arrivalLabel = entry?.syntheticLeg === 'arrival' ? `~${arrival}` : arrival;
   const departureLabel = entry?.live ? 'now' : entry?.syntheticLeg === 'departure' ? `~${departure}` : departure;
 
-  const arrivalBike = entry?.bikedAm ? bikeLink(entry.amActivityId) : '';
-  const departureBike = entry?.bikedPm ? bikeLink(entry.pmActivityId) : '';
+  const arrivalIcon = entry
+    ? legIcon(entry, {
+        biked: entry.bikedAm,
+        manual: entry.manualAm,
+        distance: entry.amDistance,
+        activityId: entry.amActivityId,
+      })
+    : '';
+  const departureIcon = entry
+    ? legIcon(entry, {
+        biked: entry.bikedPm,
+        manual: entry.manualPm,
+        distance: entry.pmDistance,
+        activityId: entry.pmActivityId,
+      })
+    : '';
 
   const timeLabels = entry?.commuted
-    ? `<span class="bar-time bar-time-top">${departureLabel}${departureBike}</span><span class="bar-time bar-time-bottom">${arrivalLabel}${arrivalBike}</span>`
+    ? `<span class="bar-time bar-time-top">${departureLabel}${departureIcon}</span><span class="bar-time bar-time-bottom">${arrivalLabel}${arrivalIcon}</span>`
     : '';
 
   const diffLabel = entry?.commuted

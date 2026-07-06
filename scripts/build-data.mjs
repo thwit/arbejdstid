@@ -167,6 +167,8 @@ async function main() {
     const departure = stravaDeparture ?? manual.departure ?? null;
     const bikedAm = stravaArrival != null;
     const bikedPm = stravaDeparture != null;
+    const manualAm = stravaArrival == null && manual.arrival != null;
+    const manualPm = stravaDeparture == null && manual.departure != null;
 
     let hours;
     const commuted = arrival != null && departure != null;
@@ -187,6 +189,8 @@ async function main() {
       pmDistance,
       bikedAm,
       bikedPm,
+      manualAm,
+      manualPm,
       amActivityId,
       pmActivityId,
     });
@@ -203,6 +207,8 @@ async function main() {
     pmDistance,
     bikedAm,
     bikedPm,
+    manualAm,
+    manualPm,
     amActivityId,
     pmActivityId,
   } of dayHours) {
@@ -218,6 +224,8 @@ async function main() {
       pmDistance,
       bikedAm,
       bikedPm,
+      manualAm,
+      manualPm,
       amActivityId,
       pmActivityId,
     });
