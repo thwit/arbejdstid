@@ -315,14 +315,6 @@ h1 {
   vertical-align: middle;
 }
 
-.bar-time .fast {
-  display: inline-block;
-  margin-left: 0.1em;
-  font-size: 0.85rem;
-  line-height: 1;
-  text-decoration: none;
-  vertical-align: middle;
-}
 
 .heatmap-header {
   display: grid;

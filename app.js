@@ -191,14 +191,13 @@ function diffClass(diff) {
 // assumed/inferred times.
 function legIcon(entry, { biked, manual, distance, activityId }) {
   if (biked) {
-    const fast =
-      distance != null && distance > LONG_RIDE_DISTANCE_THRESHOLD_METERS
-        ? `<a class="fast" href="https://www.strava.com/activities/${activityId}" target="_blank" rel="noopener noreferrer" title="Long ride (>10km) — view on Strava">💨</a>`
-        : '';
-    return `<a class="bike" href="https://www.strava.com/activities/${activityId}" target="_blank" rel="noopener noreferrer" title="View on Strava">🚲</a>${fast}`;
+    const isLong = distance != null && distance > LONG_RIDE_DISTANCE_THRESHOLD_METERS;
+    const label = isLong ? '🚲💨' : '🚲';
+    const title = isLong ? 'Long ride (>10km) — view on Strava' : 'View on Strava';
+    return `<a class="bike" href="https://www.strava.com/activities/${activityId}" target="_blank" rel="noopener noreferrer" title="${title}">${label}</a>`;
   }
   if (manual) {
-    return '<span class="bike" title="Logged via iPhone Shortcut">🚆</span>';
+    return '<span class="bike" title="Logged via iPhone Shortcut">🚄</span>';
   }
   return '';
 }
