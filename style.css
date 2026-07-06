@@ -306,8 +306,13 @@ h1 {
   font-variant-numeric: tabular-nums;
 }
 
-.bike {
-  font-size: 0.75rem;
+.bar-time .bike {
+  display: inline-block;
+  margin-left: 0.15em;
+  font-size: 0.85rem;
+  line-height: 1;
+  text-decoration: none;
+  vertical-align: middle;
 }
 
 .heatmap-header {

@@ -132,6 +132,8 @@ async function main() {
     let stravaDeparture = null;
     let amDistance = null;
     let pmDistance = null;
+    let amActivityId = null;
+    let pmActivityId = null;
     if (acts.length >= 2) {
       const first = acts[0];
       const last = acts[acts.length - 1];
@@ -141,6 +143,8 @@ async function main() {
       stravaDeparture = fmtTimeOfDay(lastStart);
       amDistance = first.distance;
       pmDistance = last.distance;
+      amActivityId = first.id;
+      pmActivityId = last.id;
     } else if (acts.length === 1) {
       const act = acts[0];
       const start = new Date(act.start_date_local).getTime();
@@ -148,9 +152,11 @@ async function main() {
       if (new Date(start).getUTCHours() < 12) {
         stravaArrival = fmtTimeOfDay(end);
         amDistance = act.distance;
+        amActivityId = act.id;
       } else {
         stravaDeparture = fmtTimeOfDay(start);
         pmDistance = act.distance;
+        pmActivityId = act.id;
       }
     }
 
@@ -181,6 +187,8 @@ async function main() {
       pmDistance,
       bikedAm,
       bikedPm,
+      amActivityId,
+      pmActivityId,
     });
   }
 
@@ -195,6 +203,8 @@ async function main() {
     pmDistance,
     bikedAm,
     bikedPm,
+    amActivityId,
+    pmActivityId,
   } of dayHours) {
     const weekStart = mondayOf(date);
     if (!byWeek.has(weekStart)) byWeek.set(weekStart, []);
@@ -208,6 +218,8 @@ async function main() {
       pmDistance,
       bikedAm,
       bikedPm,
+      amActivityId,
+      pmActivityId,
     });
   }
 

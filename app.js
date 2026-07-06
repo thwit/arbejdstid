@@ -183,6 +183,12 @@ function diffClass(diff) {
   return diff < 0 ? 'negative' : 'positive';
 }
 
+function bikeLink(activityId) {
+  return activityId
+    ? `<a class="bike" href="https://www.strava.com/activities/${activityId}" target="_blank" rel="noopener noreferrer" title="View on Strava">🚲</a>`
+    : '';
+}
+
 function dayCell(weekStart, offset, daysByDate, today) {
   const date = addDays(weekStart, offset);
   const entry = resolvePartial(applyOverhead(daysByDate.get(date)), today);
@@ -200,8 +206,11 @@ function dayCell(weekStart, offset, daysByDate, today) {
   const arrivalLabel = entry?.syntheticLeg === 'arrival' ? `~${arrival}` : arrival;
   const departureLabel = entry?.live ? 'now' : entry?.syntheticLeg === 'departure' ? `~${departure}` : departure;
 
+  const arrivalBike = entry?.bikedAm ? bikeLink(entry.amActivityId) : '';
+  const departureBike = entry?.bikedPm ? bikeLink(entry.pmActivityId) : '';
+
   const timeLabels = entry?.commuted
-    ? `<span class="bar-time bar-time-top">${departureLabel}</span><span class="bar-time bar-time-bottom">${arrivalLabel}</span>`
+    ? `<span class="bar-time bar-time-top">${departureLabel}${departureBike}</span><span class="bar-time bar-time-bottom">${arrivalLabel}${arrivalBike}</span>`
     : '';
 
   const diffLabel = entry?.commuted
@@ -213,7 +222,7 @@ function dayCell(weekStart, offset, daysByDate, today) {
       <div class="day-bar-track">
         ${arrival && departure ? `<div class="day-bar" style="${barStyle}">${timeLabels}${diffLabel}</div>` : ''}
       </div>
-      <div class="day-label">${DAY_LABELS[offset]} ${entry?.bikedAm || entry?.bikedPm ? '<span class="bike" title="Commuted by bike">🚲</span>' : ''}</div>
+      <div class="day-label">${DAY_LABELS[offset]}</div>
       <div class="day-hours">${entry ? fmtHours(entry.hours) : '—'}</div>
     </div>
   `;
