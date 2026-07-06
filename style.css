@@ -264,6 +264,11 @@ h1 {
 }
 
 .day.commuted .day-bar { background: #52525b; }
+.day.live .day-bar {
+  background: #52525b;
+  outline: 2px dashed #ea580c;
+  outline-offset: 1px;
+}
 .day.assumed .day-bar {
   background: repeating-linear-gradient(
     45deg,

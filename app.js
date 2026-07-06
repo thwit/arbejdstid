@@ -127,6 +127,53 @@ function levelClass(entry) {
   return entry.commuted ? 'commuted' : 'assumed';
 }
 
+function timeToMinutes(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function nowTimeString() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+// Fills in the missing side of a day that only has one logged time (biked
+// only one way, or only one Shortcut check-in fired that day). Today's open
+// leg is shown as hours-logged-so-far (live, recomputed on every render);
+// a past day's open leg is assumed to be an 8h day around the one time we
+// do have.
+function resolvePartial(entry, today) {
+  if (!entry || entry.commuted) return entry;
+
+  const hasArrival = entry.arrival != null;
+  const hasDeparture = entry.departure != null;
+  if (hasArrival === hasDeparture) return entry; // neither logged (already handled) or both (already commuted)
+
+  if (entry.date === today && hasArrival) {
+    const nowStr = nowTimeString();
+    const hours = Math.max(0, (timeToMinutes(nowStr) - timeToMinutes(entry.arrival)) / 60);
+    return { ...entry, departure: nowStr, hours, commuted: true, live: true };
+  }
+
+  if (hasArrival) {
+    return {
+      ...entry,
+      departure: shiftTime(entry.arrival, 8 * 3600),
+      hours: 8,
+      commuted: true,
+      syntheticLeg: 'departure',
+    };
+  }
+
+  return {
+    ...entry,
+    arrival: shiftTime(entry.departure, -8 * 3600),
+    hours: 8,
+    commuted: true,
+    syntheticLeg: 'arrival',
+  };
+}
+
 function fmtDiff(diff) {
   const sign = diff < 0 ? '-' : '';
   return `${sign}${Math.abs(diff).toFixed(1)}h`;
@@ -136,9 +183,9 @@ function diffClass(diff) {
   return diff < 0 ? 'negative' : 'positive';
 }
 
-function dayCell(weekStart, offset, daysByDate) {
+function dayCell(weekStart, offset, daysByDate, today) {
   const date = addDays(weekStart, offset);
-  const entry = applyOverhead(daysByDate.get(date));
+  const entry = resolvePartial(applyOverhead(daysByDate.get(date)), today);
 
   const arrival = entry ? (entry.commuted ? entry.arrival : ASSUMED_ARRIVAL) : null;
   const departure = entry ? (entry.commuted ? entry.departure : ASSUMED_DEPARTURE) : null;
@@ -150,8 +197,11 @@ function dayCell(weekStart, offset, daysByDate) {
         }%`
       : '';
 
+  const arrivalLabel = entry?.syntheticLeg === 'arrival' ? `~${arrival}` : arrival;
+  const departureLabel = entry?.live ? 'now' : entry?.syntheticLeg === 'departure' ? `~${departure}` : departure;
+
   const timeLabels = entry?.commuted
-    ? `<span class="bar-time bar-time-top">${departure}</span><span class="bar-time bar-time-bottom">${arrival}</span>`
+    ? `<span class="bar-time bar-time-top">${departureLabel}</span><span class="bar-time bar-time-bottom">${arrivalLabel}</span>`
     : '';
 
   const diffLabel = entry?.commuted
@@ -159,7 +209,7 @@ function dayCell(weekStart, offset, daysByDate) {
     : '';
 
   return `
-    <div class="day ${levelClass(entry)}">
+    <div class="day ${levelClass(entry)}${entry?.live ? ' live' : ''}">
       <div class="day-bar-track">
         ${arrival && departure ? `<div class="day-bar" style="${barStyle}">${timeLabels}${diffLabel}</div>` : ''}
       </div>
@@ -169,10 +219,10 @@ function dayCell(weekStart, offset, daysByDate) {
   `;
 }
 
-function weekCard(week) {
+function weekCard(week, today) {
   const daysByDate = new Map(week.days.map((d) => [d.date, d]));
-  const dayCells = DAY_LABELS.map((_, i) => dayCell(week.weekStart, i, daysByDate)).join('');
-  const totalHours = week.days.reduce((s, d) => s + applyOverhead(d).hours, 0);
+  const dayCells = DAY_LABELS.map((_, i) => dayCell(week.weekStart, i, daysByDate, today)).join('');
+  const totalHours = week.days.reduce((s, d) => s + resolvePartial(applyOverhead(d), today).hours, 0);
   const weekDiff = totalHours - week.days.length * 8;
 
   return `
@@ -195,7 +245,8 @@ function renderWeeks() {
     container.innerHTML = '<p class="empty-msg">No data yet.</p>';
     return;
   }
-  container.innerHTML = weeksData.slice().reverse().map(weekCard).join('');
+  const today = todayDateString();
+  container.innerHTML = weeksData.slice().reverse().map((w) => weekCard(w, today)).join('');
   renderSummary();
 }
 
@@ -206,8 +257,8 @@ function renderSummary() {
     return;
   }
 
-  const allDays = weeksData.flatMap((w) => w.days.map((d) => applyOverhead(d)));
   const today = todayDateString();
+  const allDays = weeksData.flatMap((w) => w.days.map((d) => resolvePartial(applyOverhead(d), today)));
 
   container.innerHTML = SUMMARY_PERIODS.map(({ label, days }) => {
     const fromDate = addDays(today, -(days - 1));
