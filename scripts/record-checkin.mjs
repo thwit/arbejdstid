@@ -52,14 +52,28 @@ async function main() {
   // several times within a few minutes. If the new time is close to the
   // existing one for this (date, type), average them (weighted by how many
   // samples already went into the existing value) instead of overwriting.
-  // A trigger well outside the jitter window is a genuine new value and
-  // replaces the old one outright.
+  //
+  // A same-type trigger well outside the jitter window is *not* treated as
+  // a genuine correction: for a commute, a second arrival (or departure)
+  // hours after the first is essentially always geofence noise from the
+  // boundary flickering near the *other* event (e.g. leaving work bounces
+  // the arrival automation too), not a real second arrival. So once a
+  // type's value is set for the day, later out-of-window triggers for that
+  // same type are ignored — first value of the day wins.
   const existing = checkins.find((c) => c.date === date && c.type === type);
+
+  if (existing && Math.abs(toMinutes(time) - toMinutes(existing.time)) > JITTER_WINDOW_MINUTES) {
+    console.log(
+      `Ignoring ${type} at ${time} on ${date}: already have ${existing.time} for this day and new trigger is outside the ${JITTER_WINDOW_MINUTES}-minute jitter window.`
+    );
+    return;
+  }
+
   const next = checkins.filter((c) => !(c.date === date && c.type === type));
 
   let mergedTime = time;
   let samples = 1;
-  if (existing && Math.abs(toMinutes(time) - toMinutes(existing.time)) <= JITTER_WINDOW_MINUTES) {
+  if (existing) {
     const existingSamples = existing.samples ?? 1;
     const avgMinutes =
       (toMinutes(existing.time) * existingSamples + toMinutes(time)) / (existingSamples + 1);
