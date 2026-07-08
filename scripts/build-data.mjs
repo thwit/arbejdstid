@@ -14,6 +14,10 @@ import {
 
 const WORK_COORD = [WORK_LAT, WORK_LNG];
 
+// Same jitter/alternation tolerance as scripts/record-checkin.mjs, applied
+// here when merging Strava-derived legs with manual check-in legs for a day.
+const JITTER_WINDOW_MINUTES = 10;
+
 function isQualifyingActivity(activity) {
   if (!COMMUTE_TYPES.includes(activity.type)) return false;
   return (
@@ -49,9 +53,16 @@ function fmtTimeOfDay(ms) {
   return `${hh}:${mm}`;
 }
 
+function toMinutes(time) {
+  const [hh, mm] = time.split(':').map(Number);
+  return hh * 60 + mm;
+}
+
 // Manual check-ins recorded by the iOS Shortcut (geofence arrive/leave
 // automations), for days that aren't fully covered by qualifying Strava
-// rides. Keyed by date -> { arrival, departure } (either may be absent).
+// rides. Keyed by date -> chronological list of { type, time } legs. A day
+// can have more than one arrival/departure pair (e.g. a long lunch or an
+// off-site appointment).
 async function loadManualCheckins(pagePassword) {
   let raw;
   try {
@@ -65,8 +76,11 @@ async function loadManualCheckins(pagePassword) {
 
   const byDate = new Map();
   for (const { date, type, time } of checkins) {
-    if (!byDate.has(date)) byDate.set(date, {});
-    byDate.get(date)[type] = time;
+    if (!byDate.has(date)) byDate.set(date, []);
+    byDate.get(date).push({ type, time });
+  }
+  for (const legs of byDate.values()) {
+    legs.sort((a, b) => toMinutes(a.time) - toMinutes(b.time));
   }
   return byDate;
 }
@@ -80,6 +94,98 @@ function enumerateDates(fromDateString, toDateString) {
     cur.setUTCDate(cur.getUTCDate() + 1);
   }
   return dates;
+}
+
+// Each qualifying Strava ride represents one leg of a commute: if it starts
+// near work, it's a departure (leaving work); if it ends near work, it's an
+// arrival (arriving at work).
+function stravaLegsFor(acts) {
+  const legs = [];
+  for (const act of acts) {
+    const start = new Date(act.start_date_local).getTime();
+    const end = start + act.elapsed_time * 1000;
+    const startsNearWork = isWithinRadius(act.start_latlng, WORK_COORD, RADIUS_METERS);
+    if (startsNearWork) {
+      legs.push({
+        type: 'departure',
+        time: fmtTimeOfDay(start),
+        biked: true,
+        manual: false,
+        distance: act.distance,
+        activityId: act.id,
+      });
+    } else {
+      legs.push({
+        type: 'arrival',
+        time: fmtTimeOfDay(end),
+        biked: true,
+        manual: false,
+        distance: act.distance,
+        activityId: act.id,
+      });
+    }
+  }
+  return legs;
+}
+
+function manualLegsFor(events) {
+  return events.map(({ type, time }) => ({
+    type,
+    time,
+    biked: false,
+    manual: true,
+    distance: null,
+    activityId: null,
+  }));
+}
+
+// Merges Strava-derived and manual legs for a day into one chronological,
+// alternating (arrival, departure, arrival, ...) sequence. When two legs of
+// the same type land within the jitter window (e.g. a Strava ride and a
+// Shortcut check-in for the same event), the Strava leg wins since it's the
+// more precise source. A same-type leg well outside the jitter window
+// breaks the expected alternation and is dropped as noise.
+function mergeLegs(stravaLegs, manualLegs) {
+  const all = [...stravaLegs, ...manualLegs].sort((a, b) => toMinutes(a.time) - toMinutes(b.time));
+  const merged = [];
+  for (const leg of all) {
+    const prev = merged[merged.length - 1];
+    if (prev && prev.type === leg.type) {
+      const diff = Math.abs(toMinutes(leg.time) - toMinutes(prev.time));
+      if (diff <= JITTER_WINDOW_MINUTES) {
+        if (leg.biked && !prev.biked) merged[merged.length - 1] = leg;
+        continue;
+      }
+      continue; // same type, far apart -> alternation violation, ignore
+    }
+    merged.push(leg);
+  }
+  return merged;
+}
+
+// Pairs up alternating arrival/departure legs into complete work intervals.
+// A trailing unmatched arrival (still at work / away and not yet back) is
+// left unpaired; the frontend resolves it into a live or assumed interval.
+function pairLegs(legs) {
+  const pairs = [];
+  let openArrival = null;
+  for (const leg of legs) {
+    if (leg.type === 'arrival') {
+      if (openArrival == null) openArrival = leg;
+    } else if (openArrival != null) {
+      pairs.push({ arrival: openArrival, departure: leg });
+      openArrival = null;
+    }
+  }
+  return pairs;
+}
+
+function pairsHours(pairs, date) {
+  return pairs.reduce((sum, { arrival, departure }) => {
+    const arrivalMs = new Date(`${date}T${arrival.time}:00Z`).getTime();
+    const departureMs = new Date(`${date}T${departure.time}:00Z`).getTime();
+    return sum + (departureMs - arrivalMs) / 3600000;
+  }, 0);
 }
 
 async function main() {
@@ -123,111 +229,23 @@ async function main() {
     if (!isWeekday(date)) continue;
 
     const acts = byDate.get(date) ?? [];
+    const legs = mergeLegs(stravaLegsFor(acts), manualLegsFor(manualByDate.get(date) ?? []));
+    const pairs = pairLegs(legs);
+    const commuted = pairs.length > 0;
+    const hours = commuted ? pairsHours(pairs, date) : TARGET_SECONDS_PER_DAY / 3600;
 
-    // Strava-derived legs. Two or more qualifying rides: first ride's end is
-    // the arrival, last ride's start is the departure (existing behaviour).
-    // Exactly one qualifying ride: use it for whichever leg it represents,
-    // based on whether it started before or after midday.
-    let stravaArrival = null;
-    let stravaDeparture = null;
-    let amDistance = null;
-    let pmDistance = null;
-    let amActivityId = null;
-    let pmActivityId = null;
-    if (acts.length >= 2) {
-      const first = acts[0];
-      const last = acts[acts.length - 1];
-      const firstEnd = new Date(first.start_date_local).getTime() + first.elapsed_time * 1000;
-      const lastStart = new Date(last.start_date_local).getTime();
-      stravaArrival = fmtTimeOfDay(firstEnd);
-      stravaDeparture = fmtTimeOfDay(lastStart);
-      amDistance = first.distance;
-      pmDistance = last.distance;
-      amActivityId = first.id;
-      pmActivityId = last.id;
-    } else if (acts.length === 1) {
-      const act = acts[0];
-      const start = new Date(act.start_date_local).getTime();
-      const end = start + act.elapsed_time * 1000;
-      if (new Date(start).getUTCHours() < 12) {
-        stravaArrival = fmtTimeOfDay(end);
-        amDistance = act.distance;
-        amActivityId = act.id;
-      } else {
-        stravaDeparture = fmtTimeOfDay(start);
-        pmDistance = act.distance;
-        pmActivityId = act.id;
-      }
-    }
-
-    // Manual check-ins (from the iOS Shortcut geofence automation) fill in
-    // whichever leg Strava didn't cover for the day; Strava always wins.
-    const manual = manualByDate.get(date) ?? {};
-    const arrival = stravaArrival ?? manual.arrival ?? null;
-    const departure = stravaDeparture ?? manual.departure ?? null;
-    const bikedAm = stravaArrival != null;
-    const bikedPm = stravaDeparture != null;
-    const manualAm = stravaArrival == null && manual.arrival != null;
-    const manualPm = stravaDeparture == null && manual.departure != null;
-
-    let hours;
-    const commuted = arrival != null && departure != null;
-    if (commuted) {
-      const arrivalMs = new Date(`${date}T${arrival}:00Z`).getTime();
-      const departureMs = new Date(`${date}T${departure}:00Z`).getTime();
-      hours = (departureMs - arrivalMs) / 3600000;
-    } else {
-      hours = TARGET_SECONDS_PER_DAY / 3600;
-    }
-    dayHours.push({
-      date,
-      hours,
-      commuted,
-      arrival,
-      departure,
-      amDistance,
-      pmDistance,
-      bikedAm,
-      bikedPm,
-      manualAm,
-      manualPm,
-      amActivityId,
-      pmActivityId,
-    });
+    dayHours.push({ date, hours, commuted, legs });
   }
 
   const byWeek = new Map();
-  for (const {
-    date,
-    hours,
-    commuted,
-    arrival,
-    departure,
-    amDistance,
-    pmDistance,
-    bikedAm,
-    bikedPm,
-    manualAm,
-    manualPm,
-    amActivityId,
-    pmActivityId,
-  } of dayHours) {
+  for (const { date, hours, commuted, legs } of dayHours) {
     const weekStart = mondayOf(date);
     if (!byWeek.has(weekStart)) byWeek.set(weekStart, []);
     byWeek.get(weekStart).push({
       date,
       hours: Math.round(hours * 100) / 100,
       commuted,
-      arrival,
-      departure,
-      amDistance,
-      pmDistance,
-      bikedAm,
-      bikedPm,
-      manualAm,
-      manualPm,
-      amActivityId,
-      pmActivityId,
+      legs,
     });
   }
 

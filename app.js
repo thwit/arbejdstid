@@ -107,21 +107,21 @@ function shiftTime(hhmm, deltaSeconds) {
   return `${hh}:${mm}`;
 }
 
-// Applies the overhead-time adjustment (if enabled) to a commuted day's
-// arrival/departure/hours. Non-commuted (assumed) days are untouched.
+// Applies the overhead-time adjustment (if enabled) to every biked leg of a
+// day: an arrival is pushed later (walking in from the bike rack), a
+// departure is pulled earlier (time to head out and start riding).
 function applyOverhead(entry) {
-  if (!entry || !entry.commuted || !overheadEnabled) return entry;
+  if (!entry) return entry;
+  if (!overheadEnabled) return entry;
 
-  const amOverhead = overheadSecondsFor(entry.amDistance);
-  const pmOverhead = overheadSecondsFor(entry.pmDistance);
-  const totalOverheadHours = (amOverhead + pmOverhead) / 3600;
+  const legs = (entry.legs ?? []).map((leg) => {
+    if (!leg.biked) return leg;
+    const overhead = overheadSecondsFor(leg.distance);
+    const time = leg.type === 'arrival' ? shiftTime(leg.time, overhead) : shiftTime(leg.time, -overhead);
+    return { ...leg, time };
+  });
 
-  return {
-    ...entry,
-    arrival: shiftTime(entry.arrival, amOverhead),
-    departure: shiftTime(entry.departure, -pmOverhead),
-    hours: Math.max(0, entry.hours - totalOverheadHours),
-  };
+  return { ...entry, legs };
 }
 
 function levelClass(entry) {
@@ -139,41 +139,83 @@ function nowTimeString() {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-// Fills in the missing side of a day that only has one logged time (biked
-// only one way, or only one Shortcut check-in fired that day). Today's open
-// leg is shown as hours-logged-so-far (live, recomputed on every render);
-// a past day's open leg is assumed to be an 8h day around the one time we
-// do have.
-function resolvePartial(entry, today) {
-  if (!entry || entry.commuted) return entry;
-
-  const hasArrival = entry.arrival != null;
-  const hasDeparture = entry.departure != null;
-  if (hasArrival === hasDeparture) return entry; // neither logged (already handled) or both (already commuted)
-
-  if (entry.date === today && hasArrival) {
-    const nowStr = nowTimeString();
-    const hours = Math.max(0, (timeToMinutes(nowStr) - timeToMinutes(entry.arrival)) / 60);
-    return { ...entry, departure: nowStr, hours, commuted: true, live: true };
+// Pairs up alternating arrival/departure legs into complete work intervals,
+// same algorithm as scripts/build-data.mjs. A trailing unmatched arrival
+// (still at work / away and not yet back) is returned separately as
+// `dangling` so the caller can resolve it into a live or assumed interval.
+function pairLegs(legs) {
+  const pairs = [];
+  let openArrival = null;
+  for (const leg of legs) {
+    if (leg.type === 'arrival') {
+      if (openArrival == null) openArrival = leg;
+    } else if (openArrival != null) {
+      pairs.push({ arrival: openArrival, departure: leg });
+      openArrival = null;
+    }
   }
+  // A trailing open arrival is always resolvable. A lone departure (no
+  // arrival ever logged that day) is only resolvable when it's the day's
+  // only leg — a departure showing up after some complete pairs is instead
+  // treated as unexplained noise and dropped.
+  const dangling = openArrival ?? (pairs.length === 0 && legs.length === 1 ? legs[0] : null);
+  return { pairs, dangling };
+}
 
-  if (hasArrival) {
-    return {
-      ...entry,
-      departure: shiftTime(entry.arrival, 8 * 3600),
-      hours: 8,
-      commuted: true,
-      syntheticLeg: 'departure',
+function pairsHours(pairs) {
+  return pairs.reduce(
+    (sum, { arrival, departure }) =>
+      sum + (timeToMinutes(departure.time) - timeToMinutes(arrival.time)) / 60,
+    0
+  );
+}
+
+// Resolves a day's raw legs into complete pairs for rendering. A trailing
+// unmatched leg (biked/logged only one way that day) gets a synthetic
+// counterpart: today's open arrival is shown as hours-logged-so-far (live,
+// recomputed on every render); a past day's lone leg is assumed to anchor
+// an 8h day.
+function resolveLegs(entry, today) {
+  if (!entry) return null;
+  const legs = entry.legs ?? [];
+  if (legs.length === 0) return { ...entry, pairs: [], commuted: false };
+
+  const { pairs, dangling } = pairLegs(legs);
+  if (!dangling) return { ...entry, pairs, commuted: pairs.length > 0 };
+
+  if (dangling.type === 'arrival') {
+    if (entry.date === today) {
+      const departure = { type: 'departure', time: nowTimeString(), biked: false, manual: false, live: true };
+      return { ...entry, pairs: [...pairs, { arrival: dangling, departure, live: true }], commuted: true };
+    }
+    const departure = {
+      type: 'departure',
+      time: shiftTime(dangling.time, 8 * 3600),
+      biked: false,
+      manual: false,
+      synthetic: true,
     };
+    return { ...entry, pairs: [...pairs, { arrival: dangling, departure }], commuted: true };
   }
 
-  return {
-    ...entry,
-    arrival: shiftTime(entry.departure, -8 * 3600),
-    hours: 8,
-    commuted: true,
-    syntheticLeg: 'arrival',
+  // Lone departure with no matching arrival logged.
+  const arrival = {
+    type: 'arrival',
+    time: shiftTime(dangling.time, -8 * 3600),
+    biked: false,
+    manual: false,
+    synthetic: true,
   };
+  return { ...entry, pairs: [...pairs, { arrival, departure: dangling }], commuted: true };
+}
+
+// Full per-day resolution pipeline: overhead adjustment, leg pairing/
+// resolution, and total hours derived from the resolved pairs.
+function resolvedDay(raw, today) {
+  const entry = resolveLegs(applyOverhead(raw), today);
+  if (!entry) return null;
+  const hours = entry.pairs.length > 0 ? pairsHours(entry.pairs) : entry.hours;
+  return { ...entry, hours };
 }
 
 function fmtDiff(diff) {
@@ -189,68 +231,61 @@ function diffClass(diff) {
 // emoji for Strava-tracked rides (plus a wind emoji for rides over 10km),
 // a train emoji for times logged via the iPhone Shortcut, or nothing for
 // assumed/inferred times.
-function legIcon(entry, { biked, manual, distance, activityId }) {
-  if (biked) {
-    const isLong = distance != null && distance > LONG_RIDE_DISTANCE_THRESHOLD_METERS;
+function legIcon(leg) {
+  if (leg.biked) {
+    const isLong = leg.distance != null && leg.distance > LONG_RIDE_DISTANCE_THRESHOLD_METERS;
     const label = isLong ? '🚲💨' : '🚲';
     const title = isLong ? 'Long ride (>10km) — view on Strava' : 'View on Strava';
-    return `<a class="bike" href="https://www.strava.com/activities/${activityId}" target="_blank" rel="noopener noreferrer" title="${title}">${label}</a>`;
+    return `<a class="bike" href="https://www.strava.com/activities/${leg.activityId}" target="_blank" rel="noopener noreferrer" title="${title}">${label}</a>`;
   }
-  if (manual) {
+  if (leg.manual) {
     return '<span class="bike" title="Logged via iPhone Shortcut">🚄</span>';
   }
   return '';
 }
 
+// Renders one arrival/departure pair as a bar within the day's track.
+function barHtml(pair) {
+  const { arrival, departure } = pair;
+  const startFrac = timeToFraction(arrival.time);
+  const endFrac = timeToFraction(departure.time);
+  const style = `bottom:${startFrac * 100}%;height:${(endFrac - startFrac) * 100}%`;
+  const cls = pair.live ? 'live' : 'commuted';
+
+  const arrivalLabel = arrival.synthetic ? `~${arrival.time}` : arrival.time;
+  const departureLabel = departure.live ? 'now' : departure.synthetic ? `~${departure.time}` : departure.time;
+  const arrivalIcon = legIcon(arrival);
+  const departureIcon = departure.live ? '' : legIcon(departure);
+
+  return `<div class="day-bar ${cls}" style="${style}">
+    <span class="bar-time bar-time-top">${departureLabel}${departureIcon}</span>
+    <span class="bar-time bar-time-bottom">${arrivalLabel}${arrivalIcon}</span>
+  </div>`;
+}
+
+function assumedBarHtml() {
+  const startFrac = timeToFraction(ASSUMED_ARRIVAL);
+  const endFrac = timeToFraction(ASSUMED_DEPARTURE);
+  const style = `bottom:${startFrac * 100}%;height:${(endFrac - startFrac) * 100}%`;
+  return `<div class="day-bar assumed" style="${style}"></div>`;
+}
+
 function dayCell(weekStart, offset, daysByDate, today) {
   const date = addDays(weekStart, offset);
-  const entry = resolvePartial(applyOverhead(daysByDate.get(date)), today);
+  const raw = daysByDate.get(date);
+  const entry = raw ? resolvedDay(raw, today) : null;
 
-  const arrival = entry ? (entry.commuted ? entry.arrival : ASSUMED_ARRIVAL) : null;
-  const departure = entry ? (entry.commuted ? entry.departure : ASSUMED_DEPARTURE) : null;
-
-  const barStyle =
-    arrival && departure
-      ? `bottom:${timeToFraction(arrival) * 100}%;height:${
-          (timeToFraction(departure) - timeToFraction(arrival)) * 100
-        }%`
-      : '';
-
-  const arrivalLabel = entry?.syntheticLeg === 'arrival' ? `~${arrival}` : arrival;
-  const departureLabel = entry?.live ? 'now' : entry?.syntheticLeg === 'departure' ? `~${departure}` : departure;
-
-  const arrivalIcon = entry
-    ? legIcon(entry, {
-        biked: entry.bikedAm,
-        manual: entry.manualAm,
-        distance: entry.amDistance,
-        activityId: entry.amActivityId,
-      })
-    : '';
-  const departureIcon = entry
-    ? legIcon(entry, {
-        biked: entry.bikedPm,
-        manual: entry.manualPm,
-        distance: entry.pmDistance,
-        activityId: entry.pmActivityId,
-      })
-    : '';
-
-  const timeLabels = entry?.commuted
-    ? `<span class="bar-time bar-time-top">${departureLabel}${departureIcon}</span><span class="bar-time bar-time-bottom">${arrivalLabel}${arrivalIcon}</span>`
-    : '';
-
-  const diffLabel = entry?.commuted
-    ? `<span class="bar-diff ${diffClass(entry.hours - 8)}">${fmtDiff(entry.hours - 8)}</span>`
-    : '';
+  const bars = entry ? (entry.pairs.length > 0 ? entry.pairs.map(barHtml).join('') : assumedBarHtml()) : '';
+  const isLive = entry?.pairs.some((p) => p.live) ?? false;
+  const diff = entry?.commuted ? entry.hours - 8 : null;
 
   return `
-    <div class="day ${levelClass(entry)}${entry?.live ? ' live' : ''}">
-      <div class="day-bar-track">
-        ${arrival && departure ? `<div class="day-bar" style="${barStyle}">${timeLabels}${diffLabel}</div>` : ''}
-      </div>
+    <div class="day ${levelClass(entry)}${isLive ? ' live' : ''}">
+      <div class="day-bar-track">${bars}</div>
       <div class="day-label">${DAY_LABELS[offset]}</div>
-      <div class="day-hours">${entry ? fmtHours(entry.hours) : '—'}</div>
+      <div class="day-hours">${entry ? fmtHours(entry.hours) : '—'}${
+    diff != null ? `<span class="day-diff ${diffClass(diff)}">${fmtDiff(diff)}</span>` : ''
+  }</div>
     </div>
   `;
 }
@@ -258,7 +293,7 @@ function dayCell(weekStart, offset, daysByDate, today) {
 function weekCard(week, today) {
   const daysByDate = new Map(week.days.map((d) => [d.date, d]));
   const dayCells = DAY_LABELS.map((_, i) => dayCell(week.weekStart, i, daysByDate, today)).join('');
-  const totalHours = week.days.reduce((s, d) => s + resolvePartial(applyOverhead(d), today).hours, 0);
+  const totalHours = week.days.reduce((s, d) => s + resolvedDay(d, today).hours, 0);
   const weekDiff = totalHours - week.days.length * 8;
 
   return `
@@ -294,7 +329,7 @@ function renderSummary() {
   }
 
   const today = todayDateString();
-  const allDays = weeksData.flatMap((w) => w.days.map((d) => resolvePartial(applyOverhead(d), today)));
+  const allDays = weeksData.flatMap((w) => w.days.map((d) => resolvedDay(d, today)));
 
   container.innerHTML = SUMMARY_PERIODS.map(({ label, days }) => {
     const fromDate = addDays(today, -(days - 1));
@@ -325,19 +360,22 @@ function weekdayIndex(dateString) {
 }
 
 // Counts, per (hour bin, weekday), how often an arrival or departure fell
-// in that bin across all recorded commute days.
+// in that bin across all recorded commute days (every leg of every pair).
 function computeHeatmapGrid() {
   const grid = Array.from({ length: HEATMAP_BIN_COUNT }, () => new Array(5).fill(0));
   if (!weeksData) return grid;
 
+  const today = todayDateString();
   for (const week of weeksData) {
     for (const day of week.days) {
-      const entry = applyOverhead(day);
+      const entry = resolvedDay(day, today);
       if (!entry.commuted) continue;
       const dayIdx = weekdayIndex(entry.date);
       if (dayIdx === -1) continue;
-      grid[timeToBinIndex(entry.arrival)][dayIdx] += 1;
-      grid[timeToBinIndex(entry.departure)][dayIdx] += 1;
+      for (const { arrival, departure } of entry.pairs) {
+        grid[timeToBinIndex(arrival.time)][dayIdx] += 1;
+        grid[timeToBinIndex(departure.time)][dayIdx] += 1;
+      }
     }
   }
   return grid;

@@ -4,9 +4,11 @@ import { encryptWithPassword, decryptWithPassword } from './encrypt.mjs';
 
 const CHECKINS_URL = new URL('../data/manual-checkins.json', import.meta.url);
 
-// If the Shortcut re-fires for the same (date, type) within this many
-// minutes of the previous trigger, treat it as GPS jitter and average the
-// times together rather than overwriting.
+// If the Shortcut re-fires within this many minutes of the last trigger for
+// the day, treat it as GPS jitter (either the same geofence event firing
+// twice, or the boundary flickering and misfiring the other automation too)
+// and average it into the last trigger rather than recording it as a
+// separate leg.
 const JITTER_WINDOW_MINUTES = 10;
 
 function toMinutes(time) {
@@ -48,47 +50,58 @@ async function main() {
 
   const checkins = await loadCheckins(pagePassword);
 
-  // GPS jitter can make the Shortcut re-fire the same geofence trigger
-  // several times within a few minutes. If the new time is close to the
-  // existing one for this (date, type), average them (weighted by how many
-  // samples already went into the existing value) instead of overwriting.
+  // A day can have more than one arrival/departure pair (e.g. leaving for a
+  // long lunch or an off-site appointment and coming back), so check-ins
+  // aren't deduped by (date, type) anymore — they form a chronological
+  // sequence of legs that should alternate arrival, departure, arrival, ...
   //
-  // A same-type trigger well outside the jitter window is *not* treated as
-  // a genuine correction: for a commute, a second arrival (or departure)
-  // hours after the first is essentially always geofence noise from the
-  // boundary flickering near the *other* event (e.g. leaving work bounces
-  // the arrival automation too), not a real second arrival. So once a
-  // type's value is set for the day, later out-of-window triggers for that
-  // same type are ignored — first value of the day wins.
-  const existing = checkins.find((c) => c.date === date && c.type === type);
+  // A new trigger is compared against the *last* logged leg for the day:
+  //  - different type from the last leg -> a genuine new leg, append it.
+  //  - same type, within the jitter window -> GPS jitter, average it into
+  //    the last leg instead of recording a separate one.
+  //  - same type, well outside the jitter window -> breaks the expected
+  //    alternation (e.g. geofence noise from the *other* automation firing
+  //    near a genuine event of the opposite type) and is ignored.
+  const dayLegs = checkins
+    .map((c, index) => ({ ...c, index }))
+    .filter((c) => c.date === date)
+    .sort((a, b) => toMinutes(a.time) - toMinutes(b.time));
+  const last = dayLegs[dayLegs.length - 1] ?? null;
 
-  if (existing && Math.abs(toMinutes(time) - toMinutes(existing.time)) > JITTER_WINDOW_MINUTES) {
-    console.log(
-      `Ignoring ${type} at ${time} on ${date}: already have ${existing.time} for this day and new trigger is outside the ${JITTER_WINDOW_MINUTES}-minute jitter window.`
-    );
-    return;
-  }
-
-  const next = checkins.filter((c) => !(c.date === date && c.type === type));
-
-  let mergedTime = time;
-  let samples = 1;
-  if (existing) {
-    const existingSamples = existing.samples ?? 1;
+  let next;
+  if (last && last.type === type) {
+    const diff = Math.abs(toMinutes(time) - toMinutes(last.time));
+    if (diff > JITTER_WINDOW_MINUTES) {
+      console.log(
+        `Ignoring ${type} at ${time} on ${date}: last leg that day was already ${last.type} at ${last.time}, more than ${JITTER_WINDOW_MINUTES} minutes ago.`
+      );
+      return;
+    }
+    const existingSamples = last.samples ?? 1;
     const avgMinutes =
-      (toMinutes(existing.time) * existingSamples + toMinutes(time)) / (existingSamples + 1);
-    mergedTime = toTimeStr(avgMinutes);
-    samples = existingSamples + 1;
+      (toMinutes(last.time) * existingSamples + toMinutes(time)) / (existingSamples + 1);
+    const merged = {
+      date,
+      type,
+      time: toTimeStr(avgMinutes),
+      samples: existingSamples + 1,
+      recordedAt: new Date().toISOString(),
+    };
+    next = checkins.map((c, index) => (index === last.index ? merged : c));
+    console.log(`Merged jittered ${type} at ${time} on ${date} into ${merged.time}.`);
+  } else {
+    next = [
+      ...checkins,
+      { date, type, time, samples: 1, recordedAt: new Date().toISOString() },
+    ];
+    console.log(`Recorded ${type} at ${time} on ${date}.`);
   }
 
-  next.push({ date, type, time: mergedTime, samples, recordedAt: new Date().toISOString() });
-  next.sort((a, b) => a.date.localeCompare(b.date) || a.type.localeCompare(b.type));
+  next.sort((a, b) => a.date.localeCompare(b.date) || toMinutes(a.time) - toMinutes(b.time));
 
   const encrypted = encryptWithPassword(JSON.stringify(next), pagePassword);
   await mkdir(new URL('../data/', import.meta.url), { recursive: true });
   await writeFile(CHECKINS_URL, JSON.stringify(encrypted, null, 2) + '\n');
-
-  console.log(`Recorded ${type} at ${time} on ${date}.`);
 }
 
 main().catch((err) => {

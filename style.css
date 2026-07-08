@@ -263,13 +263,13 @@ h1 {
   margin-top: 0.2em;
 }
 
-.day.commuted .day-bar { background: #52525b; }
-.day.live .day-bar {
+.day-bar.commuted { background: #52525b; }
+.day-bar.live {
   background: #52525b;
   outline: 2px dashed #ea580c;
   outline-offset: 1px;
 }
-.day.assumed .day-bar {
+.day-bar.assumed {
   background: repeating-linear-gradient(
     45deg,
     #d4d4d8,
@@ -279,20 +279,13 @@ h1 {
   );
 }
 
-.bar-diff {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 0.65rem;
+.day-diff {
+  margin-left: 0.3rem;
   font-weight: 600;
-  line-height: 1;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
 }
 
-.bar-diff.positive { color: #4ade80; }
-.bar-diff.negative { color: #f87171; }
+.day-diff.positive { color: #16a34a; }
+.day-diff.negative { color: #dc2626; }
 
 .day-label {
   font-size: 0.7rem;
