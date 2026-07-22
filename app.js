@@ -18,6 +18,12 @@ const SUMMARY_PERIODS = [
   { label: '12 Months', days: 365 },
 ];
 
+const RUNNING_SUM_PERIODS = [
+  { label: '2 Weeks', days: 14 },
+  { label: '1 Month', days: 30 },
+  { label: '3 Months', days: 90 },
+];
+
 const HEATMAP_BIN_MINUTES = 5;
 const HEATMAP_BIN_COUNT = ((AXIS_END_HOUR - AXIS_START_HOUR) * 60) / HEATMAP_BIN_MINUTES;
 
@@ -27,6 +33,10 @@ const SESSION_STORAGE_KEY = 'arbejdstidPassword';
 
 let weeksData = null;
 let overheadEnabled = localStorage.getItem('overheadEnabled') === 'true';
+let runningSumPeriodIndex = Number(localStorage.getItem('runningSumPeriodIndex'));
+if (!(runningSumPeriodIndex >= 0 && runningSumPeriodIndex < RUNNING_SUM_PERIODS.length)) {
+  runningSumPeriodIndex = 0;
+}
 
 function base64ToBytes(base64) {
   return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
@@ -345,6 +355,103 @@ function renderSummary() {
   }).join('');
 }
 
+function fmtShortDate(dateString) {
+  const d = new Date(`${dateString}T00:00:00Z`);
+  return d.toLocaleDateString('en-GB', { month: 'short', day: 'numeric' });
+}
+
+// Builds a running (cumulative) surplus/deficit series over the given
+// period: each day in range contributes (hours - 8) to a running total.
+function computeRunningSum(days, today, allDaysSorted) {
+  const fromDate = addDays(today, -(days - 1));
+  const inRange = allDaysSorted.filter((d) => d.date >= fromDate && d.date <= today);
+  let cum = 0;
+  const points = inRange.map((d) => {
+    cum += d.hours - 8;
+    return { date: d.date, cum };
+  });
+  return { points, fromDate };
+}
+
+function runningSumSvg(points, fromDate, today) {
+  if (points.length === 0) return '<p class="empty-msg">No data yet.</p>';
+
+  const width = 600;
+  const height = 180;
+  const padding = { top: 16, right: 16, bottom: 8, left: 8 };
+  const plotW = width - padding.left - padding.right;
+  const plotH = height - padding.top - padding.bottom;
+
+  const minVal = Math.min(0, ...points.map((p) => p.cum));
+  const maxVal = Math.max(0, ...points.map((p) => p.cum));
+  const span = maxVal - minVal || 1;
+
+  const fromMs = new Date(`${fromDate}T00:00:00Z`).getTime();
+  const toMs = new Date(`${today}T00:00:00Z`).getTime();
+  const totalMs = toMs - fromMs || 1;
+
+  const xFor = (dateStr) => {
+    const ms = new Date(`${dateStr}T00:00:00Z`).getTime();
+    return padding.left + ((ms - fromMs) / totalMs) * plotW;
+  };
+  const yFor = (val) => padding.top + (1 - (val - minVal) / span) * plotH;
+
+  const pathD = points
+    .map((p, i) => `${i === 0 ? 'M' : 'L'}${xFor(p.date).toFixed(1)},${yFor(p.cum).toFixed(1)}`)
+    .join(' ');
+
+  const zeroY = yFor(0);
+  const last = points[points.length - 1];
+  const lastColor = last.cum < 0 ? '#dc2626' : '#16a34a';
+
+  return `
+    <svg viewBox="0 0 ${width} ${height}" class="running-sum-svg" preserveAspectRatio="none">
+      <line x1="${padding.left}" y1="${zeroY.toFixed(1)}" x2="${width - padding.right}" y2="${zeroY.toFixed(1)}" class="running-sum-zero" />
+      <path d="${pathD}" class="running-sum-line" style="stroke:${lastColor}" fill="none" />
+      <circle cx="${xFor(last.date).toFixed(1)}" cy="${yFor(last.cum).toFixed(1)}" r="3" fill="${lastColor}" />
+    </svg>
+    <div class="running-sum-labels">
+      <span>${fmtShortDate(fromDate)}</span>
+      <span class="running-sum-current ${diffClass(last.cum)}">${fmtDiff(last.cum)}</span>
+      <span>${fmtShortDate(today)}</span>
+    </div>
+  `;
+}
+
+function renderRunningSum() {
+  const container = document.getElementById('running-sum-chart');
+  if (!weeksData || weeksData.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+
+  const today = todayDateString();
+  const allDaysSorted = weeksData
+    .flatMap((w) => w.days.map((d) => resolvedDay(d, today)))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const period = RUNNING_SUM_PERIODS[runningSumPeriodIndex];
+  const { points, fromDate } = computeRunningSum(period.days, today, allDaysSorted);
+  container.innerHTML = runningSumSvg(points, fromDate, today);
+}
+
+function renderRunningSumToggle() {
+  const container = document.getElementById('running-sum-toggle');
+  container.innerHTML = RUNNING_SUM_PERIODS.map(
+    (p, i) =>
+      `<button type="button" class="segmented-btn${i === runningSumPeriodIndex ? ' active' : ''}" data-index="${i}">${p.label}</button>`
+  ).join('');
+
+  container.querySelectorAll('.segmented-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      runningSumPeriodIndex = Number(btn.dataset.index);
+      localStorage.setItem('runningSumPeriodIndex', String(runningSumPeriodIndex));
+      renderRunningSumToggle();
+      renderRunningSum();
+    });
+  });
+}
+
 // Maps "HH:mm" to a bin index within the 06:00..18:00 axis, clamped.
 function timeToBinIndex(hhmm) {
   const [h, m] = hhmm.split(':').map(Number);
@@ -435,6 +542,7 @@ function initToggle() {
     updateToggleButton();
     renderWeeks();
     renderHeatmap();
+    renderRunningSum();
   });
 }
 
@@ -445,6 +553,8 @@ async function unlock(payload, password) {
   initToggle();
   renderWeeks();
   renderHeatmap();
+  renderRunningSumToggle();
+  renderRunningSum();
 }
 
 async function render() {

@@ -345,3 +345,87 @@ h1 {
   height: 3px;
   border-radius: 1px;
 }
+
+.running-sum-panel {
+  background: #ffffff;
+  border: 1px solid #e4e4e7;
+  border-radius: 0.75rem;
+  padding: 1rem 1.25rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  margin-bottom: 1.5rem;
+}
+
+.running-sum-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.running-sum-header h2 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #3f3f46;
+  margin: 0;
+}
+
+.segmented {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.segmented-btn {
+  font-family: inherit;
+  font-size: 0.75rem;
+  color: #3f3f46;
+  background: #f7f7f8;
+  border: 1px solid #e4e4e7;
+  border-radius: 999px;
+  padding: 0.3rem 0.65rem;
+  cursor: pointer;
+}
+
+.segmented-btn:hover {
+  border-color: #a1a1aa;
+}
+
+.segmented-btn.active {
+  background: #fff7ed;
+  border-color: #fb923c;
+  color: #c2410c;
+}
+
+.running-sum-svg {
+  width: 100%;
+  height: 10rem;
+  display: block;
+}
+
+.running-sum-zero {
+  stroke: #d4d4d8;
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+
+.running-sum-line {
+  stroke-width: 2;
+}
+
+.running-sum-labels {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  color: #a1a1aa;
+}
+
+.running-sum-current {
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.running-sum-current.positive { color: #16a34a; }
+.running-sum-current.negative { color: #dc2626; }
