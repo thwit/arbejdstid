@@ -360,16 +360,20 @@ function fmtShortDate(dateString) {
   return d.toLocaleDateString('en-GB', { month: 'short', day: 'numeric' });
 }
 
-// Builds a running (cumulative) surplus/deficit series over the given
-// period: each day in range contributes (hours - 8) to a running total.
+// Builds the all-time cumulative surplus/deficit series (each day
+// contributes hours - 8 to a running total that never resets), then slices
+// it down to the requested display window. The window only controls how
+// much of the curve is shown — the cumulative values themselves reflect
+// the full history up to that point.
 function computeRunningSum(days, today, allDaysSorted) {
-  const fromDate = addDays(today, -(days - 1));
-  const inRange = allDaysSorted.filter((d) => d.date >= fromDate && d.date <= today);
   let cum = 0;
-  const points = inRange.map((d) => {
+  const allPoints = allDaysSorted.map((d) => {
     cum += d.hours - 8;
     return { date: d.date, cum };
   });
+
+  const fromDate = addDays(today, -(days - 1));
+  const points = allPoints.filter((p) => p.date >= fromDate && p.date <= today);
   return { points, fromDate };
 }
 
