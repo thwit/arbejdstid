@@ -360,21 +360,25 @@ function fmtShortDate(dateString) {
   return d.toLocaleDateString('en-GB', { month: 'short', day: 'numeric' });
 }
 
-// Builds the all-time cumulative surplus/deficit series (each day
-// contributes hours - 8 to a running total that never resets), then slices
-// it down to the requested display window. The window only controls how
-// much of the curve is shown — the cumulative values themselves reflect
-// the full history up to that point.
-function computeRunningSum(days, today, allDaysSorted) {
-  let cum = 0;
-  const allPoints = allDaysSorted.map((d) => {
-    cum += d.hours - 8;
-    return { date: d.date, cum };
-  });
-
-  const fromDate = addDays(today, -(days - 1));
-  const points = allPoints.filter((p) => p.date >= fromDate && p.date <= today);
-  return { points, fromDate };
+// Builds a rolling surplus/deficit series across the full history: each
+// point is the sum of (hours - 8) over the trailing `windowDays`-day window
+// ending on that date. The x-axis always spans all-time data — the window
+// size only changes how much trailing history each point sums over, not
+// which dates are plotted.
+function computeRunningSum(windowDays, allDaysSorted) {
+  const points = [];
+  let start = 0;
+  let sum = 0;
+  for (let i = 0; i < allDaysSorted.length; i++) {
+    sum += allDaysSorted[i].hours - 8;
+    const cutoff = addDays(allDaysSorted[i].date, -(windowDays - 1));
+    while (start < i && allDaysSorted[start].date < cutoff) {
+      sum -= allDaysSorted[start].hours - 8;
+      start++;
+    }
+    points.push({ date: allDaysSorted[i].date, cum: sum });
+  }
+  return points;
 }
 
 function runningSumSvg(points, fromDate, today) {
@@ -435,8 +439,10 @@ function renderRunningSum() {
     .sort((a, b) => a.date.localeCompare(b.date));
 
   const period = RUNNING_SUM_PERIODS[runningSumPeriodIndex];
-  const { points, fromDate } = computeRunningSum(period.days, today, allDaysSorted);
-  container.innerHTML = runningSumSvg(points, fromDate, today);
+  const points = computeRunningSum(period.days, allDaysSorted);
+  const fromDate = points.length > 0 ? points[0].date : today;
+  const toDate = points.length > 0 ? points[points.length - 1].date : today;
+  container.innerHTML = runningSumSvg(points, fromDate, toDate);
 }
 
 function renderRunningSumToggle() {
